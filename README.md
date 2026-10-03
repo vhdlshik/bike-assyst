@@ -10,13 +10,28 @@ an assistant for ebikers. Works with alt mode glasses like Nreal.
 
 Flutter app (Android + iOS). What works so far:
 
-- **Route import**: GPX (tracks or routes) and KML (`LineString`, `gx:Track`, which is what Google My Maps exports). A built-in demo route lets you try it without a file.
+- **Google Maps link import**: paste (or keep on the clipboard) a Google Maps directions or place link, including `maps.app.goo.gl` short links. The stops are read from the link and the bike route, with Google's own turn instructions, comes from the Google Routes API. A place link, or a link starting at "my location", is routed from where you are.
+- **File import**: GPX (tracks or routes) and KML (`LineString`, `gx:Track`, which is what Google My Maps exports). A built-in demo route lets you try it without a file.
 - **Turn detection**: GPX/KML tracks carry no instructions, so turns are derived from the route's shape (slight / normal / sharp left and right, U-turn, arrival).
 - **Navigation**: GPS fixes are matched to the route to find the next turn, distance to it, off-route and arrival.
 - **Glasses HUD**: a pure black screen (transparent on Nreal/XREAL) that shows a turn arrow on the side of the turn only when the turn is within 150 m. Screen stays awake; tap the phone to show ride controls.
 - **Simulated ride**: rides the route without GPS, to try the HUD at a desk.
 
-Not yet: importing directly from a Google Maps link, phone screen dimming while riding, head-turn detection and the rear camera picture-in-picture.
+Not yet: opening links straight from Google Maps' Share button, phone screen dimming while riding, head-turn detection and the rear camera picture-in-picture.
+
+## Google Maps API key
+
+Link import calls the [Routes API](https://developers.google.com/maps/documentation/routes) (the current version of Google's directions service; the older Directions API is legacy).
+
+1. In Google Cloud Console, create a project with billing enabled and enable **Routes API**.
+2. Create an API key and restrict it to the Routes API (and, ideally, to your app's package name / bundle id).
+3. Copy `env.example.json` to `env.json` (git-ignored), put the key in it, and run with:
+
+```sh
+flutter run --dart-define-from-file=env.json
+```
+
+Without a key the app still works with files and the demo route; the Google Maps button explains what's missing.
 
 ## Development
 
