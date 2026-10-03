@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../camera/rear_camera.dart';
+import '../head/head_tracker.dart';
 import '../nav/position_source.dart';
 import '../route/demo_route.dart';
 import '../route/google/maps_import.dart';
@@ -29,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _simulate = false;
   bool _loading = false;
   RearLens? _rearLens = RearLens.front;
+  bool _headTracking = true;
 
   Future<void> _importLink() async {
     if (GoogleRoutesClient.buildTimeApiKey.isEmpty) {
@@ -108,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
         route: route,
         source: source,
         rearCamera: lens == null ? null : DeviceRearCamera(lens),
+        headTracker: lens != null && _headTracking ? XrealHeadTracker() : null,
       ),
     ));
   }
@@ -172,6 +175,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   const DropdownMenuItem(value: null, child: Text('Off')),
                 ],
               ),
+            ),
+            SwitchListTile(
+              title: const Text('Head tracking'),
+              subtitle: const Text('XREAL Air glasses: show the rear view when you look over a shoulder, '
+                  'instead of before turns'),
+              value: _headTracking && _rearLens != null,
+              onChanged: _rearLens == null ? null : (v) => setState(() => _headTracking = v),
             ),
             const SizedBox(height: 8),
             FilledButton(onPressed: _start, child: const Text('Start ride')),

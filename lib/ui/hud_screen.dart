@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../camera/rear_camera.dart';
+import '../head/head_tracker.dart';
+import '../head/head_turn_detector.dart';
 import '../nav/navigation_engine.dart';
 import '../nav/position_source.dart';
 import '../route/route.dart';
@@ -16,8 +18,9 @@ import 'turn_arrow.dart';
 ///
 /// Optical see-through glasses (Nreal/XREAL) render black as transparent, so
 /// the screen stays pure black and the road stays visible. An arrow appears
-/// only when a turn is coming up, and with it the rear camera's picture in
-/// the upper corner on the same side, to check behind before turning.
+/// only when a turn is coming up. The rear camera's picture shows in the upper
+/// corner on the side the rider looks over a shoulder to, when head tracking
+/// runs; without it, on the side of a coming turn.
 ///
 /// The phone's own screen is dimmed for the ride. Tapping it or pressing a
 /// phone button (such as volume) lights it up and shows the ride controls for
@@ -30,6 +33,7 @@ class HudScreen extends StatefulWidget {
     this.announceMeters = 150,
     this.dimmer = const BrightnessScreenDimmer(),
     this.rearCamera,
+    this.headTracker,
   });
 
   final NavRoute route;
@@ -45,6 +49,11 @@ class HudScreen extends StatefulWidget {
   /// HUD starts and disposes it.
   final RearCamera? rearCamera;
 
+  /// Shows the rear view when the rider looks over a shoulder; null or
+  /// failing to start falls back to showing it beside turn cues. The HUD
+  /// starts and stops it.
+  final HeadTracker? headTracker;
+
   @override
   State<HudScreen> createState() => _HudScreenState();
 }
@@ -57,6 +66,9 @@ class _HudScreenState extends State<HudScreen> {
   Timer? _hideTimer;
   bool _rearReady = false;
   bool _rearShown = false;
+  bool _headTracking = false;
+  HeadLook _look = HeadLook.ahead;
+  StreamSubscription<HeadLook>? _lookSub;
 
   @override
   void initState() {
@@ -71,7 +83,38 @@ class _HudScreenState extends State<HudScreen> {
       _syncRearCamera();
     });
     _startRearCamera();
+    _startHeadTracking();
   }
+
+  Future<void> _startHeadTracking() async {
+    final tracker = widget.headTracker;
+    if (tracker == null) return;
+    final error = await tracker.start();
+    if (!mounted) {
+      // The ride ended while tracking was starting; dispose() ran too early.
+      await tracker.stop();
+      return;
+    }
+    if (error != null) {
+      _snack(error);
+      return;
+    }
+    _lookSub = tracker.looks.listen(
+      (look) {
+        setState(() => _look = look);
+        _syncRearCamera();
+      },
+      onError: (Object e) {
+        // Back to rear view beside turn cues for the rest of the ride.
+        setState(() => _headTracking = false);
+        _syncRearCamera();
+        _snack('$e');
+      },
+    );
+    setState(() => _headTracking = true);
+  }
+
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
 
   Future<void> _startRearCamera() async {
     final camera = widget.rearCamera;
@@ -83,7 +126,7 @@ class _HudScreenState extends State<HudScreen> {
       return;
     }
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      _snack(error);
       return;
     }
     await camera.pause();
@@ -101,10 +144,16 @@ class _HudScreenState extends State<HudScreen> {
   }
 
   /// Which side the rear view sits on, or null while it's hidden.
-  TurnDirection? get _rearSide {
+  HeadLook? get _rearSide {
+    if (!_rearReady) return null;
+    if (_headTracking) return _look == HeadLook.ahead ? null : _look;
     final m = _cuedManeuver;
-    if (!_rearReady || m == null || !(m.direction.isLeft || m.direction.isRight)) return null;
-    return m.direction;
+    if (m == null) return null;
+    return m.direction.isLeft
+        ? HeadLook.left
+        : m.direction.isRight
+            ? HeadLook.right
+            : null;
   }
 
   // Only run the camera while its picture is on screen.
@@ -119,6 +168,8 @@ class _HudScreenState extends State<HudScreen> {
   void dispose() {
     _sub?.cancel();
     _hideTimer?.cancel();
+    _lookSub?.cancel();
+    widget.headTracker?.stop();
     widget.rearCamera?.dispose();
     widget.dimmer?.restore();
     WakelockPlus.disable();
@@ -200,7 +251,7 @@ class _HudScreenState extends State<HudScreen> {
               if (rearSide != null)
                 SafeArea(
                   child: Align(
-                    alignment: rearSide.isLeft ? Alignment.topLeft : Alignment.topRight,
+                    alignment: rearSide == HeadLook.left ? Alignment.topLeft : Alignment.topRight,
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: ClipRRect(

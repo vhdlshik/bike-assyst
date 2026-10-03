@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Head tracking reads the glasses' motion sensor over USB; optional. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <application
         android:label="bike_assyst"
         android:name="${applicationName}"

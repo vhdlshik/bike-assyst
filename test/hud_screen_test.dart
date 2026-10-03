@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:bike_assyst/camera/rear_camera.dart';
 import 'package:bike_assyst/geo/geo.dart';
+import 'package:bike_assyst/head/head_tracker.dart';
+import 'package:bike_assyst/head/head_turn_detector.dart';
 import 'package:bike_assyst/nav/position_source.dart';
 import 'package:bike_assyst/route/demo_route.dart';
 import 'package:bike_assyst/ui/hud_screen.dart';
@@ -47,6 +49,19 @@ class _FakeRearCamera implements RearCamera {
   Future<void> resume() async => calls.add('resume');
   @override
   Future<void> dispose() async => calls.add('dispose');
+}
+
+class _FakeHeadTracker implements HeadTracker {
+  _FakeHeadTracker([this.error]);
+  final String? error;
+  final controller = StreamController<HeadLook>();
+  bool stopped = false;
+  @override
+  Future<String?> start() async => error;
+  @override
+  Stream<HeadLook> get looks => controller.stream;
+  @override
+  Future<void> stop() async => stopped = true;
 }
 
 void main() {
@@ -178,5 +193,77 @@ void main() {
     camera.opening!.complete();
     await tester.pump();
     expect(camera.calls.skipWhile((c) => c != 'opened'), contains('dispose'));
+  });
+
+  group('with head tracking', () {
+    Future<(_FakeSource, _FakeRearCamera)> ride(WidgetTester tester, HeadTracker tracker) async {
+      final source = _FakeSource();
+      final camera = _FakeRearCamera();
+      await tester.pumpWidget(MaterialApp(
+        home: HudScreen(
+            route: demoRoute(), source: source, dimmer: _FakeDimmer(), rearCamera: camera, headTracker: tracker),
+      ));
+      await tester.pump();
+      await tester.pump();
+      return (source, camera);
+    }
+
+    testWidgets('rear view follows looks over a shoulder, not turn cues', (tester) async {
+      final tracker = _FakeHeadTracker();
+      final (source, camera) = await ride(tester, tracker);
+      final rearView = find.byKey(const Key('rear-view'));
+      final width = tester.getSize(find.byType(HudScreen)).width;
+
+      source.controller.add(demoRoute().points[10]); // 100 m before a right turn
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const Key('turn-cue')), findsOneWidget);
+      expect(rearView, findsNothing);
+
+      tracker.controller.add(HeadLook.left);
+      await tester.pump();
+      await tester.pump();
+      expect(rearView, findsOneWidget);
+      expect(tester.getTopRight(rearView).dx, lessThan(width / 2));
+      expect(camera.running, isTrue);
+
+      tracker.controller.add(HeadLook.right);
+      await tester.pump();
+      await tester.pump();
+      expect(tester.getTopLeft(rearView).dx, greaterThan(width / 2));
+
+      tracker.controller.add(HeadLook.ahead);
+      await tester.pump();
+      await tester.pump();
+      expect(rearView, findsNothing);
+      expect(camera.running, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+      expect(tracker.stopped, isTrue);
+    });
+
+    testWidgets('losing the glasses falls back to turn cues', (tester) async {
+      final tracker = _FakeHeadTracker();
+      final (source, _) = await ride(tester, tracker);
+      tracker.controller.addError('Glasses motion sensor disconnected');
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Glasses motion sensor disconnected'), findsOneWidget);
+
+      source.controller.add(demoRoute().points[10]);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const Key('rear-view')), findsOneWidget);
+    });
+
+    testWidgets('tracking that cannot start says why and falls back to turn cues', (tester) async {
+      final (source, _) = await ride(tester, _FakeHeadTracker('No XREAL Air glasses connected'));
+      expect(find.text('No XREAL Air glasses connected'), findsOneWidget);
+
+      source.controller.add(demoRoute().points[10]);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const Key('rear-view')), findsOneWidget);
+    });
   });
 }
