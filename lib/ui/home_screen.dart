@@ -2,9 +2,13 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../nav/position_source.dart';
 import '../route/demo_route.dart';
+import '../route/google/maps_import.dart';
+import '../route/google/maps_link.dart';
+import '../route/google/routes_api.dart';
 import '../route/maneuver_detector.dart';
 import '../route/route.dart';
 import '../route/route_file_parser.dart';
@@ -22,6 +26,43 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   NavRoute? _route;
   bool _simulate = false;
+  bool _loading = false;
+
+  Future<void> _importLink() async {
+    if (GoogleRoutesClient.buildTimeApiKey.isEmpty) {
+      _snack('No Google Maps API key in this build. See README: Google Maps API key.');
+      return;
+    }
+    final clip = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    if (!mounted) return;
+    final text = await showDialog<String>(
+      context: context,
+      builder: (_) => _LinkDialog(initial: MapsLink.findUrl(clip) != null ? clip.trim() : ''),
+    );
+    if (text == null || text.trim().isEmpty) return;
+
+    setState(() => _loading = true);
+    try {
+      final importer = MapsImporter(
+        apiKey: GoogleRoutesClient.buildTimeApiKey,
+        currentLocation: () async {
+          final error = await GpsPositionSource.ensurePermission();
+          if (error != null) throw MapsLinkException('$error, needed for a route from your location');
+          return GpsPositionSource.current();
+        },
+      );
+      final route = await importer.import(text);
+      if (mounted) setState(() => _route = route);
+    } on MapsLinkException catch (e) {
+      _snack(e.message);
+    } on RoutesApiException catch (e) {
+      _snack(e.message);
+    } catch (e) {
+      _snack('Could not load the route: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   Future<void> _import() async {
     final file = await FilePicker.pickFile(
@@ -79,9 +120,14 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: [
             FilledButton.icon(
-              onPressed: _import,
+              onPressed: _loading ? null : _importLink,
+              icon: const Icon(Icons.map),
+              label: const Text('Google Maps link'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _import,
               icon: const Icon(Icons.file_open),
-              label: const Text('Import GPX / KML'),
+              label: const Text('GPX / KML file'),
             ),
             OutlinedButton.icon(
               onPressed: _loadDemo,
@@ -90,8 +136,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ]),
           const SizedBox(height: 16),
-          if (route == null)
-            const Text('No route loaded. Export your Google Maps route as GPX or KML and import it here.')
+          if (_loading)
+            const Center(child: CircularProgressIndicator())
+          else if (route == null)
+            const Text('No route loaded. Copy a Google Maps directions link, or import a GPX/KML file.')
           else ...[
             Card(
               child: ListTile(
@@ -115,6 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 dense: true,
                 leading: TurnArrow(direction: m.direction, size: 28, color: Theme.of(context).colorScheme.primary),
                 title: Text(m.direction.label),
+                subtitle: m.instruction == null ? null : Text(m.instruction!),
                 trailing: Text(formatDistance(m.distanceFromStart)),
               ),
           ],
@@ -122,4 +171,42 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
+
+class _LinkDialog extends StatefulWidget {
+  const _LinkDialog({required this.initial});
+  final String initial;
+
+  @override
+  State<_LinkDialog> createState() => _LinkDialogState();
+}
+
+class _LinkDialogState extends State<_LinkDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Google Maps link'),
+        content: TextField(
+          controller: _controller,
+          autofocus: widget.initial.isEmpty,
+          minLines: 1,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'https://maps.app.goo.gl/…',
+            helperText: 'Directions or a place. A place is routed from where you are.',
+            helperMaxLines: 2,
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, _controller.text), child: const Text('Get bike route')),
+        ],
+      );
 }
