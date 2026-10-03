@@ -32,6 +32,7 @@ class Maneuver {
     required this.direction,
     required this.distanceFromStart,
     this.angle = 0,
+    this.instruction,
   });
 
   /// Index into [NavRoute.points] where the maneuver happens.
@@ -43,6 +44,10 @@ class Maneuver {
 
   /// Signed heading change in degrees, positive is right.
   final double angle;
+
+  /// Spoken-style instruction from the routing service, e.g. "Turn left onto
+  /// Main St". Null for routes imported from files.
+  final String? instruction;
 }
 
 /// A route the rider follows: a polyline plus the maneuvers along it.

@@ -24,6 +24,11 @@ class GpsPositionSource implements PositionSource {
     return null;
   }
 
+  static Future<LatLng> current() async {
+    final p = await Geolocator.getCurrentPosition();
+    return LatLng(p.latitude, p.longitude);
+  }
+
   @override
   Stream<LatLng> get positions => Geolocator.getPositionStream(
         locationSettings: const LocationSettings(

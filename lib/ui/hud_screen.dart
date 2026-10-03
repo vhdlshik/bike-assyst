@@ -129,6 +129,17 @@ class _HudScreenState extends State<HudScreen> {
                             : '${m.direction.label} · ${formatDistance(s.distanceToManeuver)}',
                         style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600),
                       ),
+                      if (m.instruction != null)
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 320),
+                          child: Text(
+                            m.instruction!,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white70, fontSize: 18),
+                          ),
+                        ),
                     ],
                   ),
                 ),
