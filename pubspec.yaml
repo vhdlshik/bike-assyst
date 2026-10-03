@@ -38,6 +38,7 @@ dependencies:
   wakelock_plus: ^1.8.1
   file_picker: ^13.1.0
   xml: ^7.1.0
+  screen_brightness: ^2.1.0
 
 dev_dependencies:
   flutter_test:
