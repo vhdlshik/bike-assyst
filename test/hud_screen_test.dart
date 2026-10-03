@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:bike_assyst/camera/rear_camera.dart';
 import 'package:bike_assyst/geo/geo.dart';
 import 'package:bike_assyst/nav/position_source.dart';
 import 'package:bike_assyst/route/demo_route.dart';
@@ -22,6 +23,30 @@ class _FakeDimmer implements ScreenDimmer {
   Future<void> dim() async => calls.add('dim');
   @override
   Future<void> restore() async => calls.add('restore');
+}
+
+class _FakeRearCamera implements RearCamera {
+  _FakeRearCamera([this.error]);
+  final String? error;
+  final calls = <String>[];
+  Completer<void>? opening;
+  bool get running => calls.lastWhere((c) => c == 'pause' || c == 'resume', orElse: () => '') == 'resume';
+  @override
+  Future<String?> start() async {
+    calls.add('start');
+    await opening?.future;
+    calls.add('opened');
+    return error;
+  }
+
+  @override
+  Widget preview() => const ColoredBox(color: Colors.blue);
+  @override
+  Future<void> pause() async => calls.add('pause');
+  @override
+  Future<void> resume() async => calls.add('resume');
+  @override
+  Future<void> dispose() async => calls.add('dispose');
 }
 
 void main() {
@@ -81,5 +106,77 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     expect(dimmer.calls.last, 'restore');
+  });
+
+  testWidgets('rear view shows on the side of a coming turn and runs only then', (tester) async {
+    final route = demoRoute();
+    final source = _FakeSource();
+    final camera = _FakeRearCamera();
+    await tester.pumpWidget(MaterialApp(
+      home: HudScreen(route: route, source: source, dimmer: _FakeDimmer(), rearCamera: camera),
+    ));
+    await tester.pump();
+    expect(camera.calls, ['start', 'opened', 'pause']);
+
+    final rearView = find.byKey(const Key('rear-view'));
+    final width = tester.getSize(find.byType(HudScreen)).width;
+
+    source.controller.add(route.points.first); // 300 m before a right turn
+    await tester.pump();
+    await tester.pump();
+    expect(rearView, findsNothing);
+    expect(camera.running, isFalse);
+
+    source.controller.add(route.points[10]); // 100 m before it
+    await tester.pump();
+    await tester.pump();
+    expect(rearView, findsOneWidget);
+    expect(tester.getTopLeft(rearView).dx, greaterThan(width / 2));
+    expect(tester.getTopLeft(rearView).dy, lessThan(50));
+    expect(camera.running, isTrue);
+
+    source.controller.add(route.points[16]); // past it, 200 m before a slight left
+    await tester.pump();
+    await tester.pump();
+    expect(rearView, findsNothing);
+    expect(camera.running, isFalse);
+
+    source.controller.add(route.points[20]); // 120 m before the slight left
+    await tester.pump();
+    await tester.pump();
+    expect(rearView, findsOneWidget);
+    expect(tester.getTopRight(rearView).dx, lessThan(width / 2));
+    expect(camera.running, isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    expect(camera.calls.last, 'dispose');
+  });
+
+  testWidgets('a rear camera that cannot start says why and stays hidden', (tester) async {
+    final route = demoRoute();
+    final source = _FakeSource();
+    await tester.pumpWidget(MaterialApp(
+      home: HudScreen(
+          route: route, source: source, dimmer: _FakeDimmer(), rearCamera: _FakeRearCamera('No camera here')),
+    ));
+    await tester.pump();
+    expect(find.text('No camera here'), findsOneWidget);
+
+    source.controller.add(route.points[10]);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const Key('turn-cue')), findsOneWidget);
+    expect(find.byKey(const Key('rear-view')), findsNothing);
+  });
+
+  testWidgets('a ride ended while the camera opens still releases it', (tester) async {
+    final camera = _FakeRearCamera()..opening = Completer<void>();
+    await tester.pumpWidget(MaterialApp(
+      home: HudScreen(route: demoRoute(), source: _FakeSource(), dimmer: _FakeDimmer(), rearCamera: camera),
+    ));
+    await tester.pumpWidget(const SizedBox());
+    camera.opening!.complete();
+    await tester.pump();
+    expect(camera.calls.skipWhile((c) => c != 'opened'), contains('dispose'));
   });
 }

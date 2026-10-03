@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../camera/rear_camera.dart';
 import '../nav/navigation_engine.dart';
 import '../nav/position_source.dart';
 import '../route/route.dart';
@@ -15,7 +16,8 @@ import 'turn_arrow.dart';
 ///
 /// Optical see-through glasses (Nreal/XREAL) render black as transparent, so
 /// the screen stays pure black and the road stays visible. An arrow appears
-/// only when a turn is coming up.
+/// only when a turn is coming up, and with it the rear camera's picture in
+/// the upper corner on the same side, to check behind before turning.
 ///
 /// The phone's own screen is dimmed for the ride. Tapping it or pressing a
 /// phone button (such as volume) lights it up and shows the ride controls for
@@ -27,6 +29,7 @@ class HudScreen extends StatefulWidget {
     required this.source,
     this.announceMeters = 150,
     this.dimmer = const BrightnessScreenDimmer(),
+    this.rearCamera,
   });
 
   final NavRoute route;
@@ -38,6 +41,10 @@ class HudScreen extends StatefulWidget {
   /// Dims the phone screen while riding; pass null to leave it alone.
   final ScreenDimmer? dimmer;
 
+  /// Shows the road behind next to turn cues; null for no rear view. The
+  /// HUD starts and disposes it.
+  final RearCamera? rearCamera;
+
   @override
   State<HudScreen> createState() => _HudScreenState();
 }
@@ -48,6 +55,8 @@ class _HudScreenState extends State<HudScreen> {
   NavState? _state;
   bool _controlsVisible = false;
   Timer? _hideTimer;
+  bool _rearReady = false;
+  bool _rearShown = false;
 
   @override
   void initState() {
@@ -59,13 +68,58 @@ class _HudScreenState extends State<HudScreen> {
       final arrivedBefore = _state?.arrived ?? false;
       setState(() => _state = _engine.update(p));
       if (_state!.arrived && !arrivedBefore) widget.dimmer?.restore();
+      _syncRearCamera();
     });
+    _startRearCamera();
+  }
+
+  Future<void> _startRearCamera() async {
+    final camera = widget.rearCamera;
+    if (camera == null) return;
+    final error = await camera.start();
+    if (!mounted) {
+      // The ride ended while the camera was opening; dispose() ran too early.
+      await camera.dispose();
+      return;
+    }
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    await camera.pause();
+    if (!mounted) return;
+    setState(() => _rearReady = true);
+    _syncRearCamera();
+  }
+
+  /// The next turn when its cue is on screen.
+  Maneuver? get _cuedManeuver {
+    final s = _state;
+    final m = s?.nextManeuver;
+    if (s == null || m == null || s.offRoute || s.distanceToManeuver > widget.announceMeters) return null;
+    return m;
+  }
+
+  /// Which side the rear view sits on, or null while it's hidden.
+  TurnDirection? get _rearSide {
+    final m = _cuedManeuver;
+    if (!_rearReady || m == null || !(m.direction.isLeft || m.direction.isRight)) return null;
+    return m.direction;
+  }
+
+  // Only run the camera while its picture is on screen.
+  void _syncRearCamera() {
+    final shown = _rearSide != null;
+    if (shown == _rearShown) return;
+    _rearShown = shown;
+    shown ? widget.rearCamera?.resume() : widget.rearCamera?.pause();
   }
 
   @override
   void dispose() {
     _sub?.cancel();
     _hideTimer?.cancel();
+    widget.rearCamera?.dispose();
     widget.dimmer?.restore();
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -93,10 +147,10 @@ class _HudScreenState extends State<HudScreen> {
   @override
   Widget build(BuildContext context) {
     final s = _state;
-    final m = s?.nextManeuver;
-    final showArrow = s != null && m != null && !s.offRoute && s.distanceToManeuver <= widget.announceMeters;
+    final m = _cuedManeuver;
+    final rearSide = _rearSide;
     // Turn cues sit on the side of the turn, leaving the centre of view clear.
-    final alignment = m == null || !showArrow
+    final alignment = m == null
         ? Alignment.center
         : m.direction.isLeft
             ? const Alignment(-0.7, 0.5)
@@ -114,7 +168,7 @@ class _HudScreenState extends State<HudScreen> {
           onTap: _showControls,
           child: Stack(
             children: [
-              if (showArrow)
+              if (m != null)
                 Align(
                   alignment: alignment,
                   child: Column(
@@ -125,8 +179,8 @@ class _HudScreenState extends State<HudScreen> {
                       const SizedBox(height: 8),
                       Text(
                         m.direction == TurnDirection.arrive
-                            ? formatDistance(s.distanceToManeuver)
-                            : '${m.direction.label} · ${formatDistance(s.distanceToManeuver)}',
+                            ? formatDistance(s!.distanceToManeuver)
+                            : '${m.direction.label} · ${formatDistance(s!.distanceToManeuver)}',
                         style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600),
                       ),
                       if (m.instruction != null)
@@ -141,6 +195,20 @@ class _HudScreenState extends State<HudScreen> {
                           ),
                         ),
                     ],
+                  ),
+                ),
+              if (rearSide != null)
+                SafeArea(
+                  child: Align(
+                    alignment: rearSide.isLeft ? Alignment.topLeft : Alignment.topRight,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: ClipRRect(
+                        key: const Key('rear-view'),
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(width: 220, height: 165, child: widget.rearCamera!.preview()),
+                      ),
+                    ),
                   ),
                 ),
               if (s != null && s.offRoute)

@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Bike Assyst shows the road behind you from the phone's camera.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Bike Assyst uses your location to guide you along your route.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

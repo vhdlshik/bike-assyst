@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../camera/rear_camera.dart';
 import '../nav/position_source.dart';
 import '../route/demo_route.dart';
 import '../route/google/maps_import.dart';
@@ -27,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   NavRoute? _route;
   bool _simulate = false;
   bool _loading = false;
+  RearLens? _rearLens = RearLens.front;
 
   Future<void> _importLink() async {
     if (GoogleRoutesClient.buildTimeApiKey.isEmpty) {
@@ -100,8 +102,13 @@ class _HomeScreenState extends State<HomeScreen> {
       source = GpsPositionSource();
     }
     if (!mounted) return;
+    final lens = _rearLens;
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => HudScreen(route: route, source: source),
+      builder: (_) => HudScreen(
+        route: route,
+        source: source,
+        rearCamera: lens == null ? null : DeviceRearCamera(lens),
+      ),
     ));
   }
 
@@ -153,6 +160,18 @@ class _HomeScreenState extends State<HomeScreen> {
               subtitle: const Text('Move along the route without GPS'),
               value: _simulate,
               onChanged: (v) => setState(() => _simulate = v),
+            ),
+            ListTile(
+              title: const Text('Rear view'),
+              subtitle: Text(_rearLens?.hint ?? 'No camera picture before turns'),
+              trailing: DropdownButton<RearLens?>(
+                value: _rearLens,
+                onChanged: (v) => setState(() => _rearLens = v),
+                items: [
+                  for (final lens in RearLens.values) DropdownMenuItem(value: lens, child: Text(lens.label)),
+                  const DropdownMenuItem(value: null, child: Text('Off')),
+                ],
+              ),
             ),
             const SizedBox(height: 8),
             FilledButton(onPressed: _start, child: const Text('Start ride')),

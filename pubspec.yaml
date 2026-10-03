@@ -40,6 +40,7 @@ dependencies:
   xml: ^7.1.0
   screen_brightness: ^2.1.0
   http: ^1.6.0
+  camera: ^0.12.1
 
 dev_dependencies:
   flutter_test:
